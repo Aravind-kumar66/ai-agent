@@ -1,0 +1,15 @@
+My name is Aravind.
+
+I am a Computer Science and Engineering student.
+
+My technical skills include Python, SQL, Pandas, NumPy,
+Matplotlib, Scikit-learn, Excel, Git and GitHub.
+
+I am interested in Data Analytics, Machine Learning,
+Artificial Intelligence and AI Agents.
+
+My projects include Fake News Detection using Machine Learning,
+a Sales Data Analysis Dashboard, and a Jarvis project.
+
+I am currently building an AI agent portfolio project using
+the Gemini API and Python.
