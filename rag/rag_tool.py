@@ -1,175 +1,148 @@
 import os
+from typing import List, Dict, Any
+from sentence_transformers import SentenceTransformer
+import numpy as np
+import pypdf
 
-from pypdf import PdfReader
 
-from rag.vector_store import VectorStore
+class SimpleVectorStore:
+    """A lightweight in-memory vector store using cosine similarity."""
 
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+        print(f"Loading embedding model ({model_name})...")
+        self.model = SentenceTransformer(model_name)
+        self.documents: List[Dict[str, Any]] = []
+        self.embeddings: List[np.ndarray] = []
 
-class RAGTool:
-
-    def __init__(self, documents_path="rag/documents"):
-
-        self.documents_path = documents_path
-
-        self.vector_store = VectorStore()
-
-        self.load_documents()
-
-    # --------------------------------------------------
-    # Load documents
-    # --------------------------------------------------
-
-    def load_documents(self):
-
-        documents = []
-
-        if not os.path.exists(self.documents_path):
-
-            print(
-                f"Documents folder not found: "
-                f"{self.documents_path}"
-            )
-
+    def add_documents(self, chunks: List[Dict[str, Any]]) -> None:
+        """Embeds text chunks and stores them in memory."""
+        if not chunks:
             return
 
-        for filename in os.listdir(self.documents_path):
+        texts = [chunk["text"] for chunk in chunks]
+        embeddings = self.model.encode(texts, show_progress_bar=False)
 
-            file_path = os.path.join(
-                self.documents_path,
-                filename
-            )
+        for chunk, emb in zip(chunks, embeddings):
+            self.documents.append(chunk)
+            norm = np.linalg.norm(emb)
+            normalized_emb = emb / norm if norm > 0 else emb
+            self.embeddings.append(normalized_emb)
 
-            if not os.path.isfile(file_path):
-                continue
+    def search(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+        """Finds top-K most similar document chunks to a query."""
+        if not self.embeddings:
+            return []
 
-            # TXT / Markdown
-            if filename.lower().endswith((".txt", ".md")):
+        query_emb = self.model.encode(query)
+        norm = np.linalg.norm(query_emb)
+        query_emb = query_emb / norm if norm > 0 else query_emb
 
-                text = self.read_text_file(file_path)
+        matrix = np.array(self.embeddings)
+        scores = np.dot(matrix, query_emb)
 
-            # PDF
-            elif filename.lower().endswith(".pdf"):
+        top_indices = np.argsort(scores)[::-1][:top_k]
 
-                text = self.read_pdf_file(file_path)
+        results = []
+        for idx in top_indices:
+            doc = self.documents[idx].copy()
+            doc["score"] = float(scores[idx])
+            results.append(doc)
 
-            else:
+        return results
 
-                continue
 
-            chunks = self.chunk_text(
-                text,
-                filename
-            )
+class DocumentRAG:
+    """RAG tool for parsing local PDFs and text files into a vector store."""
 
-            documents.extend(chunks)
+    def __init__(self, docs_dir: str = "rag/documents", chunk_size: int = 500, chunk_overlap: int = 50):
+        self.docs_dir = docs_dir
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        self.vector_store = SimpleVectorStore()
+        self.load_and_index()
 
-        self.vector_store.add_documents(
-            documents
-        )
+    def _extract_text_from_pdf(self, file_path: str) -> str:
+        """Extract text content from a PDF file."""
+        text = ""
+        try:
+            reader = pypdf.PdfReader(file_path)
+            for page in reader.pages:
+                extracted = page.extract_text()
+                if extracted:
+                    text += extracted + "\n"
+        except Exception as e:
+            print(f"Error reading PDF {file_path}: {e}")
+        return text
 
-        print(
-            f"Loaded {len(documents)} document chunks."
-        )
-
-    # --------------------------------------------------
-    # Read text files
-    # --------------------------------------------------
-
-    def read_text_file(self, file_path):
-
-        with open(
-            file_path,
-            "r",
-            encoding="utf-8"
-        ) as file:
-
-            return file.read()
-
-    # --------------------------------------------------
-    # Read PDF files
-    # --------------------------------------------------
-
-    def read_pdf_file(self, file_path):
-
-        text = []
-
-        reader = PdfReader(file_path)
-
-        for page in reader.pages:
-
-            page_text = page.extract_text()
-
-            if page_text:
-
-                text.append(page_text)
-
-        return "\n".join(text)
-
-    # --------------------------------------------------
-    # Create chunks
-    # --------------------------------------------------
-
-    def chunk_text(
-        self,
-        text,
-        source,
-        chunk_size=500
-    ):
-
-        words = text.split()
-
+    def _chunk_text(self, text: str, source: str) -> List[Dict[str, Any]]:
+        """Splits text into overlapping character chunks."""
         chunks = []
+        start = 0
+        text_len = len(text)
 
-        for i in range(
-            0,
-            len(words),
-            chunk_size
-        ):
+        while start < text_len:
+            end = start + self.chunk_size
+            chunk_str = text[start:end].strip()
 
-            chunk = " ".join(
-                words[i:i + chunk_size]
-            )
-
-            if chunk.strip():
-
+            if chunk_str:
                 chunks.append({
-                    "text": chunk,
-                    "source": source
+                    "text": chunk_str,
+                    "source": source,
+                    "start": start,
+                    "end": end
                 })
+
+            start += self.chunk_size - self.chunk_overlap
 
         return chunks
 
-    # --------------------------------------------------
-    # Search documents
-    # --------------------------------------------------
+    def load_and_index(self) -> None:
+        """Scan document directory and populate vector store."""
+        if not os.path.exists(self.docs_dir):
+            os.makedirs(self.docs_dir, exist_ok=True)
+            print(f"Created directory '{self.docs_dir}'. Add PDF or TXT files here.")
+            return
 
-    def search(
-        self,
-        query,
-        top_k=3
-    ):
+        all_chunks = []
+        for filename in os.listdir(self.docs_dir):
+            file_path = os.path.join(self.docs_dir, filename)
 
-        results = self.vector_store.search(
-            query,
-            top_k
-        )
+            if filename.endswith(".pdf"):
+                text = self._extract_text_from_pdf(file_path)
+            elif filename.endswith(".txt"):
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    text = f.read()
+            else:
+                continue
+
+            if text.strip():
+                chunks = self._chunk_text(text, source=filename)
+                all_chunks.extend(chunks)
+
+        if all_chunks:
+            self.vector_store.add_documents(all_chunks)
+            print(f"Loaded {len(all_chunks)} document chunks into vector store.")
+        else:
+            print("No documents found or indexed.")
+
+    def search(self, query: str, top_k: int = 3) -> str:
+        """Search indexed PDF and text document chunks using vector similarity.
+
+        Args:
+            query: The text query to search for within indexed documents.
+            top_k: Number of relevant document chunks to return.
+        """
+        results = self.vector_store.search(query=query, top_k=top_k)
 
         if not results:
+            return "No relevant information found in the local documents."
 
-            return (
-                "No relevant information "
-                "found in the documents."
+        formatted_results = []
+        for res in results:
+            formatted_results.append(
+                f"Source: {res['source']}\n"
+                f"Similarity Score: {res.get('score', 0.0):.3f}\n"
+                f"Content: {res['text']}"
             )
 
-        output = []
-
-        for result in results:
-
-            output.append(
-                f"Source: {result['source']}\n"
-                f"Similarity: "
-                f"{result['score']:.3f}\n"
-                f"{result['text']}"
-            )
-
-        return "\n\n---\n\n".join(output)
+        return "\n\n---\n\n".join(formatted_results)
