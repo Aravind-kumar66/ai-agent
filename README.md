@@ -32,8 +32,7 @@ An end-to-end autonomous AI agent capable of reasoning over user queries, select
 | Sentence Transformers | Document text embeddings (`all-MiniLM-L6-v2`) |
 | NumPy | In-memory vector similarity computation |
 | pypdf | PDF document extraction |
-| python-dotenv | Local environment configuration |
-
+| Serper API | Real-time web search results |
 ---
 
 ## ⚙️ How it works
