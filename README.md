@@ -4,8 +4,7 @@
 > A multi-tool AI agent built with Python, Streamlit, and Google Gemini API, combining autonomous tool selection, web search, weather forecasts, calculation, conversation memory, and Retrieval-Augmented Generation (RAG).
 
 ## 🌐 Live Demo
-👉 [Try it here](https://your-app-name.streamlit.app/)
-
+👉 [Try it here](https://aravinds-ai-agent.streamlit.app/)
 ---
 
 ## 📌 What it does

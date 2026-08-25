@@ -1,45 +1,36 @@
 import urllib.parse
 import urllib.request
-from bs4 import BeautifulSoup
-
+import json
 
 def search_web(query: str, max_results: int = 5) -> str:
-    """Search the web using DuckDuckGo HTML search.
-
+    """Search the web using DuckDuckGo Instant Answer API.
+    
     Args:
         query: The search query string.
-        max_results: Maximum number of search results to return.
+        max_results: Maximum number of results to return.
     """
-    url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
+    url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(query)}&format=json&no_redirect=1&no_html=1"
     req = urllib.request.Request(
-        url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        url, headers={"User-Agent": "Mozilla/5.0"}
     )
-
     try:
-        with urllib.request.urlopen(req) as response:
-            html = response.read().decode("utf-8")
-
-        soup = BeautifulSoup(html, "html.parser")
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        
         results = []
-
-        for result in soup.find_all("div", class_="result"):
-            title_tag = result.find("a", class_="result__a")
-            snippet_tag = result.find("a", class_="result__snippet")
-
-            if title_tag and snippet_tag:
-                results.append(
-                    f"Title: {title_tag.get_text(strip=True)}\n"
-                    f"URL: {title_tag['href']}\n"
-                    f"Snippet: {snippet_tag.get_text(strip=True)}"
-                )
-
+        
+        # Abstract (main answer)
+        if data.get("AbstractText"):
+            results.append(f"Summary: {data['AbstractText']}\nSource: {data.get('AbstractURL', '')}")
+        
+        # Related topics
+        for topic in data.get("RelatedTopics", []):
+            if isinstance(topic, dict) and topic.get("Text"):
+                results.append(f"Result: {topic['Text']}\nURL: {topic.get('FirstURL', '')}")
             if len(results) >= max_results:
                 break
-
-        return (
-            "\n\n---\n\n".join(results)
-            if results
-            else "No search results found."
-        )
+        
+        return "\n\n---\n\n".join(results) if results else "No results found for this query."
+    
     except Exception as e:
         return f"Web search error: {str(e)}"
